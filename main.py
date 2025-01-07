@@ -5,7 +5,7 @@ from cryptography.hazmat.primitives import padding
 import os
 
 # Initialize the bot with your Telegram Bot Token
-bot = telebot.TeleBot("7379376090:AAEpzTK-itDBVwB68O5tqcgtKXUMSo_x0Y0")
+bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
 
 # Dictionary to store user passwords and keys
 user_keys = {}
