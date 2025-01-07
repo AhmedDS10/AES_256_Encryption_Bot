@@ -1,10 +1,16 @@
+import os
 import telebot
+from flask import Flask, request
 from cryptography.hazmat.primitives.ciphers import Cipher, algorithms, modes
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import padding
-import os
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+from cryptography.hazmat.primitives import hashes
 
-# Initialize the bot with your Telegram Bot Token
+# Initialize Flask app
+app = Flask(__name__)
+
+# Initialize the bot with your Telegram Bot Token from environment variable
 bot = telebot.TeleBot(os.getenv("BOT_TOKEN"))
 
 # Dictionary to store user passwords and keys
@@ -12,9 +18,6 @@ user_keys = {}
 
 # Function to generate a key from a password
 def generate_key(password):
-    # Use a key derivation function (like PBKDF2) to generate a 256-bit key
-    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
-    from cryptography.hazmat.primitives import hashes
     salt = b'some_salt'  # Use a unique salt for better security
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -28,29 +31,21 @@ def generate_key(password):
 
 # Function to encrypt text using AES-256
 def encrypt_text(text, key):
-    # Generate a random 128-bit IV (Initialization Vector)
-    iv = os.urandom(16)
-    # Create AES cipher
+    iv = os.urandom(16)  # Generate a random 128-bit IV
     cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
     encryptor = cipher.encryptor()
-    # Pad the data to be a multiple of the block size
     padder = padding.PKCS7(algorithms.AES.block_size).padder()
     padded_data = padder.update(text.encode()) + padder.finalize()
-    # Encrypt the data
     encrypted_data = encryptor.update(padded_data) + encryptor.finalize()
     return iv + encrypted_data  # Return IV + encrypted data
 
 # Function to decrypt text using AES-256
 def decrypt_text(encrypted_data, key):
-    # Extract the IV from the beginning of the encrypted data
-    iv = encrypted_data[:16]
+    iv = encrypted_data[:16]  # Extract the IV from the beginning
     encrypted_data = encrypted_data[16:]
-    # Create AES cipher
     cipher = Cipher(algorithms.AES(key), modes.CBC(iv), backend=default_backend())
     decryptor = cipher.decryptor()
-    # Decrypt the data
     padded_data = decryptor.update(encrypted_data) + decryptor.finalize()
-    # Unpad the data
     unpadder = padding.PKCS7(algorithms.AES.block_size).unpadder()
     text = unpadder.update(padded_data) + unpadder.finalize()
     return text.decode()
@@ -109,5 +104,24 @@ def process_decrypt(message):
     except Exception as e:
         bot.reply_to(message, "Invalid encrypted text. Please try again.")
 
-# Start the bot
-bot.polling()
+# Webhook route
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    update = telebot.types.Update.de_json(request.stream.read().decode('utf-8'))
+    bot.process_new_updates([update])
+    return 'ok', 200
+
+# Health check route
+@app.route('/')
+def home():
+    return "Bot is running!"
+
+# Set webhook on startup
+def set_webhook():
+    bot.remove_webhook()
+    bot.set_webhook(url=f"https://{os.getenv('RENDER_EXTERNAL_HOSTNAME')}/webhook")
+
+# Run the Flask app
+if __name__ == '__main__':
+    set_webhook()
+    app.run(host='0.0.0.0', port=8080)
